@@ -44,7 +44,7 @@
 
 | 项目 | 说明 |
 |---|---|
-| 数据规模 | **1,061,164** 行交易明细 / 48,369 个订单 / 5,939 个客户 / 4,741 个 SKU |
+| 数据规模 | **1,061,164** 行交易明细 / **40,077** 个成交订单 / **5,939** 个客户 / **4,741** 个 SKU |
 | 时间跨度 | 2009-12-01 ~ 2011-12-09（739 天，25 个月） |
 | 数据来源 | UCI Machine Learning Repository — Online Retail II |
 | 技术栈 | Python 3 · pandas · MySQL 8.0 · SQLAlchemy · FastAPI · ECharts |
@@ -300,7 +300,7 @@ cum_gmv / total_gmv                -- 累计占比
 
 ```bash
 # 1) 克隆仓库
-git clone https://github.com/GH_USER/ecommerce-analytics.git
+git clone https://github.com/ZYT-070917/ecommerce-analytics.git
 cd ecommerce-analytics
 
 # 2) 安装依赖
