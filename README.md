@@ -489,6 +489,7 @@ group by d.year, d.month, d.month_name
 ```
 ecommerce-analytics/
 ├── .env.example            # 连接串模板（复制为 .env 使用）
+├── .gitattributes          # 统一换行符（Windows 提交不污染）
 ├── .gitignore
 ├── LICENSE                 # MIT
 ├── README.md
