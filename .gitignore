@@ -1,0 +1,9 @@
+.env
+raw/*.zip
+raw/*.xlsx
+__pycache__/
+*.pyc
+.venv/
+venv/
+.idea/
+*.iml
