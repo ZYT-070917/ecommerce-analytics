@@ -512,18 +512,6 @@ ecommerce-analytics/
 
 ---
 
-## 学习笔记
-
-这个项目配套的两份零基础教程，记录了从 0 到 1 的完整学习路径，
-全部在真实数据（同一份 106 万行交易数据）上逐条验证：
-
-- [SQL 零基础教程](docs/SQL_零基础教程.md) — 从 select 到窗口函数，60 条语句全部在项目数据库上验证
-- [pandas 零基础教程](docs/PANDAS_零基础教程.md) — 从 read_excel 到完整数据清洗，清洗结果与数据库 8 项指标交叉验证
-- [SQL 练习题库](docs/SQL_PRACTICE.md) — L1~L5 分级练习，附业务解读与面试追问
-- [CHANGELOG](docs/CHANGELOG.md) — 开发时间线与问题修复记录
-
----
-
 ## 数据来源与许可
 
 数据集来自 [UCI Machine Learning Repository — Online Retail II](https://archive.ics.uci.edu/dataset/502/online+retail+ii)，
