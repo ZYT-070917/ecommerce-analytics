@@ -504,9 +504,7 @@ ecommerce-analytics/
 │   └── index.html          # ECharts 看板（单文件，零构建）
 └── docs/
     ├── CHANGELOG.md        # 版本记录
-    ├── SQL_零基础教程.md    # 学习笔记：SQL（60 条语句真库验证）
     ├── SQL_PRACTICE.md     # 学习笔记：SQL 练习题库
-    ├── PANDAS_零基础教程.md # 学习笔记：pandas 数据清洗
     └── images/             # README 配图
 ```
 
