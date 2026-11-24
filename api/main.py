@@ -1,10 +1,8 @@
-"""电商经营分析 API —— FastAPI + MySQL 数据仓库。
+#电商经营分析 API —— FastAPI + MySQL 数据仓库。
 
-启动:
-    uvicorn api.main:app --reload --port 8000
-文档:
-    http://127.0.0.1:8000/docs
-"""
+#启动:uvicorn api.main:app --reload --port 8000
+#文档:http://127.0.0.1:8000/docs
+
 import os
 from pathlib import Path
 

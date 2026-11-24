@@ -1,10 +1,9 @@
-"""ETL：UCI Online Retail II -> MySQL 星型模型数据仓库。
+#ETL：UCI Online Retail II -> MySQL 星型模型数据仓库。
 
-步骤：读取 Excel 两个 sheet -> 清洗 -> 构建 4 张表（dim_date/dim_customer/dim_product/fact_sales）
+#步骤：读取 Excel 两个 sheet -> 清洗 -> 构建 4 张表（dim_date/dim_customer/dim_product/fact_sales）
 
-用法：
-    python etl/build_dw.py
-"""
+#用法： python etl/build_dw.py
+
 import os
 import time
 from pathlib import Path
