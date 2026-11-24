@@ -514,5 +514,3 @@ ecommerce-analytics/
 
 原始数据已脱敏，不包含客户姓名、地址、联系方式等个人信息，仅保留匿名的 `Customer ID`，
 用于学习与研究。
-
-本项目代码以 MIT License 发布。
