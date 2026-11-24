@@ -51,8 +51,18 @@ def extract() -> pd.DataFrame:
     # sheet_name=None 一次读完全部 sheet，返回 {sheet名: DataFrame}
     sheets = pd.read_excel(RAW, sheet_name=None, engine="openpyxl",
                            dtype={"Invoice": str, "StockCode": str})
-    df = pd.concat(sheets.values(), ignore_index=True)  # ignore_index 重新编号
-    log(f"原始行数: {len(df):,}")
+
+    # 两个 sheet 的日期区间有重叠：第一个到 2010-12-09，第二个从 2010-12-01 开始。
+    # 直接 concat 会让这 9 天被读两遍 —— 实测 22,665 行重复、GMV 虚高约 44 万。
+    # 所以第二个及以后的 sheet 只保留"第一个 sheet 最后一天之后"的行。
+    # 注意：不能整体 drop_duplicates，同一订单里同商品买两次是合法的业务数据。
+    frames = list(sheets.values())
+    first, rest = frames[0], frames[1:]
+    last_date = pd.to_datetime(first["InvoiceDate"]).max()
+    kept = [first] + [f[pd.to_datetime(f["InvoiceDate"]) > last_date] for f in rest]
+    df = pd.concat(kept, ignore_index=True)  # ignore_index 重新编号
+
+    log(f"原始行数: {len(df):,}（已裁掉与前一 sheet 重叠的日期）")
     return df
 
 

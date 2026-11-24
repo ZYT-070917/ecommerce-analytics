@@ -42,7 +42,9 @@ def kpi():
             COUNT(DISTINCT customer_id)                                AS customers,
             ROUND(SUM(CASE WHEN is_return = 0 THEN amount END)
                   / NULLIF(COUNT(DISTINCT CASE WHEN is_return = 0 THEN invoice_no END), 0), 2) AS aov,
-            ROUND(-SUM(CASE WHEN is_return = 1 THEN amount END)
+            -- 退货金额取绝对值：不假设退货行的 quantity 一定是负数，
+            -- 否则数据里一旦出现正数量的退货单，退货率会算成负数。
+            ROUND(ABS(SUM(CASE WHEN is_return = 1 THEN amount END))
                   / NULLIF(SUM(CASE WHEN is_return = 0 THEN amount END), 0) * 100, 2) AS return_rate,
             COUNT(*) AS line_count
         FROM fact_sales
