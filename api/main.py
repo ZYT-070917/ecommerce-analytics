@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 engine = create_engine(os.getenv("DATABASE_URL"), pool_pre_ping=True)
 
-app = FastAPI(title="电商经营分析平台", version="1.0.2")
+app = FastAPI(title="电商经营分析平台", version="1.1.1")
 app.mount("/static", StaticFiles(directory=ROOT / "web"), name="static")
 
 # 前端如果从别的端口/域名访问（例如把 web/ 单独部署），没有 CORS 会被浏览器直接拦掉。

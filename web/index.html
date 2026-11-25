@@ -2,287 +2,318 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>电商经营分析平台</title>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
-<style>
-  :root{
-    --bg:#f5f7fa; --card:#ffffff; --line:#e8ecf1;
-    --text:#1a2332; --sub:#5b2412; --brand:#1f5fbf; --brand-soft:#e8f0fb;
-    --good:#c0392b; --warn:#e08e0b; --muted:#8b98a8; --radius:10px;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--bg);color:var(--text);
-    font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
-    padding:22px 26px 40px;}
-  header{display:flex;align-items:baseline;gap:14px;margin-bottom:20px;}
-  h1{font-size:20px;font-weight:600;letter-spacing:.3px}
-  .sub{font-size:12.5px;color:var(--sub)}
-  .dot{width:7px;height:7px;border-radius:50%;background:#2e9e5b;display:inline-block;margin-right:5px}
-  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:14px}
-  .kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
-    padding:14px 16px;position:relative;overflow:hidden}
-  .kpi::after{content:"";position:absolute;left:0;top:0;width:3px;height:100%;background:var(--brand);opacity:.75}
-  .kpi .label{font-size:12px;color:var(--sub);margin-bottom:7px}
-  .kpi .value{font-size:21px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.2px}
-  .kpi .value small{font-size:12px;font-weight:400;color:var(--sub);margin-left:3px}
-  .grid{display:grid;gap:12px;margin-bottom:12px}
-  .g-2{grid-template-columns:2fr 1fr}
-  .g-3{grid-template-columns:1fr 1fr 1fr}
-  .g-11{grid-template-columns:1fr 1fr}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px 6px}
-  .card h2{font-size:13.5px;font-weight:600;margin-bottom:2px;display:flex;justify-content:space-between;align-items:center}
-  .card h2 span{font-size:11.5px;font-weight:400;color:var(--muted)}
-  .chart{width:100%;height:250px}
-  .chart.tall{height:290px}
-  table{width:100%;border-collapse:collapse;font-size:12.5px;margin:8px 0 12px}
-  th{text-align:left;color:var(--sub);font-weight:500;padding:7px 8px;border-bottom:1px solid var(--line);font-size:11.5px}
-  td{padding:7px 8px;border-bottom:1px solid #f2f5f8;font-variant-numeric:tabular-nums}
-  tr:last-child td{border-bottom:none}
-  .tag{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;background:var(--brand-soft);color:var(--brand)}
-  .loading{color:var(--muted);font-size:12px;padding:16px 4px}
-  footer{margin-top:18px;font-size:11.5px;color:var(--muted);text-align:center}
-</style>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>电商经营分析 · Online Retail II</title>
+<meta name="theme-color" content="#f1f4fb">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/assets/app.css">
 </head>
 <body>
-<header>
-  <div>
-    <h1>电商经营分析平台</h1>
-    <div class="sub"><span class="dot"></span><span id="status">正在连接数据仓库…</span></div>
-  </div>
-</header>
 
-<div class="kpis" id="kpis">
-  <div class="kpi"><div class="label">GMV（不含退货）</div><div class="value" id="k-gmv">—</div></div>
-  <div class="kpi"><div class="label">订单数</div><div class="value" id="k-orders">—</div></div>
-  <div class="kpi"><div class="label">活跃客户数</div><div class="value" id="k-customers">—</div></div>
-  <div class="kpi"><div class="label">客单价 AOV</div><div class="value" id="k-aov">—</div></div>
-  <div class="kpi"><div class="label">退货金额占比</div><div class="value" id="k-return">—</div></div>
-  <div class="kpi"><div class="label">销售明细行</div><div class="value" id="k-lines">—</div></div>
-</div>
-
-<div class="grid g-2">
-  <div class="card">
-    <h2>月度经营趋势 <span>GMV / 订单数</span></h2>
-    <div class="chart tall" id="c-trend"></div>
-  </div>
-  <div class="card">
-    <h2>RFM 客户分层 <span>按 GMV 贡献</span></h2>
-    <div class="chart tall" id="c-rfm"></div>
+<!-- ── 启动遮罩：只在首屏数据真的慢时才会显形，常态一闪而过 ───────────── -->
+<div class="intro" id="intro" aria-hidden="true">
+  <div class="intro-inner">
+    <div class="intro-mark">OR</div>
+    <p class="intro-title">电商经营分析</p>
+    <p class="intro-sub">UCI Online Retail II · 英国在线零售商真实交易</p>
+    <div class="intro-bar"><i id="intro-bar"></i></div>
+    <p class="intro-note" id="intro-note">正在装配 5 个分析视图…</p>
+    <button class="intro-retry" id="intro-retry" type="button">重新连接</button>
   </div>
 </div>
 
-<div class="grid g-3">
-  <div class="card">
-    <h2>ABC 商品结构 <span>帕累托原则</span></h2>
-    <div class="chart" id="c-abc"></div>
+<div class="app" id="app">
+
+  <!-- ── 顶栏 ──────────────────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">OR</div>
+      <div>
+        <h1>电商经营分析</h1>
+        <p class="brand-sub">UCI Online Retail II · 英国在线零售商真实交易</p>
+      </div>
+    </div>
+
+    <div class="topbar-meta">
+      <span class="pill" id="period-pill">
+        <span class="dot" id="conn-dot"></span><span id="period-text">—</span>
+      </span>
+      <span class="pill pill-ghost" id="rows-pill">—</span>
+      <div class="themes" id="themes" role="group" aria-label="切换主题配色"></div>
+    </div>
+
+    <div class="progress"><i id="progress-bar"></i></div>
+  </header>
+
+  <!-- ── 翻页视口 ──────────────────────────────────────────────────────── -->
+  <main class="viewport" id="viewport">
+    <div class="track" id="track">
+
+      <!-- ══ 第 1 页 · 经营概览 ════════════════════════════════════════ -->
+      <section class="page" data-page="0" aria-label="经营概览">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Overview</p>
+            <h2 class="page-title">经营概览</h2>
+          </div>
+          <p class="page-note" id="overview-note"></p>
+        </div>
+
+        <section class="kpi-row" aria-label="核心经营指标">
+          <article class="kpi kpi-hero">
+            <p class="kpi-label">GMV<span class="hint">不含退货</span></p>
+            <p class="kpi-value" id="kpi-gmv">—</p>
+            <div class="spark" id="gmv-spark" aria-hidden="true"></div>
+            <p class="kpi-foot" id="kpi-gmv-foot">月度走势</p>
+          </article>
+
+          <article class="kpi">
+            <p class="kpi-label">成交订单</p>
+            <p class="kpi-value" id="kpi-orders">—</p>
+            <p class="kpi-foot">全周期去重单号</p>
+          </article>
+
+          <article class="kpi">
+            <p class="kpi-label">客户数</p>
+            <p class="kpi-value" id="kpi-customers">—</p>
+            <p class="kpi-foot">不含游客订单</p>
+          </article>
+
+          <article class="kpi">
+            <p class="kpi-label">客单价 AOV</p>
+            <p class="kpi-value" id="kpi-aov">—</p>
+            <p class="kpi-foot">GMV ÷ 订单数</p>
+          </article>
+
+          <article class="kpi">
+            <p class="kpi-label">退货金额占比</p>
+            <p class="kpi-value" id="kpi-return">—</p>
+            <p class="kpi-foot">退货额 ÷ 销售额</p>
+          </article>
+        </section>
+
+        <section class="card card-fill" aria-labelledby="t-trend">
+          <div class="card-head">
+            <div>
+              <h3 id="t-trend">月度经营趋势</h3>
+              <p class="card-sub">GMV 与订单数双轴对照</p>
+            </div>
+            <span class="badge" id="badge-trend">—</span>
+          </div>
+          <p class="insight" id="insight-trend"></p>
+          <div class="chart-wrap"><div class="chart" id="c-trend" role="img"
+               aria-label="月度 GMV 与订单数趋势折线图"></div></div>
+        </section>
+      </section>
+
+      <!-- ══ 第 2 页 · 客户价值 ════════════════════════════════════════ -->
+      <section class="page" data-page="1" aria-label="客户价值">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Customer</p>
+            <h2 class="page-title">客户价值分层</h2>
+          </div>
+          <p class="page-note" id="rfm-note"></p>
+        </div>
+
+        <div class="split split-a">
+          <section class="card card-fill" aria-labelledby="t-rfm">
+            <div class="card-head">
+              <div>
+                <h3 id="t-rfm">RFM 分层结构</h3>
+                <p class="card-sub">五分位打分 · 6 类客户</p>
+              </div>
+              <span class="badge" id="badge-rfm">—</span>
+            </div>
+            <p class="insight" id="insight-rfm"></p>
+            <div class="chart-wrap"><div class="chart" id="c-rfm" role="img"
+                 aria-label="RFM 客户分层环形图"></div></div>
+          </section>
+
+          <section class="card card-fill card-table" aria-labelledby="t-rfm-table">
+            <div class="card-head">
+              <div>
+                <h3 id="t-rfm-table">分层明细</h3>
+                <p class="card-sub">点击表头排序</p>
+              </div>
+              <span class="badge badge-ghost" id="badge-rfm-total">—</span>
+            </div>
+            <div class="table-wrap table-fill">
+              <table id="table-rfm">
+                <thead><tr>
+                  <th data-sort="segment">分层</th>
+                  <th data-sort="customers" data-type="num" class="ta-r">人数</th>
+                  <th data-sort="avg_recency_days" data-type="num" class="ta-r">平均 R</th>
+                  <th data-sort="avg_frequency" data-type="num" class="ta-r">平均 F</th>
+                  <th data-sort="avg_monetary" data-type="num" class="ta-r">人均 M</th>
+                  <th data-sort="total_gmv" data-type="num" class="ta-r">GMV 贡献</th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="metric-strip" id="rfm-strip"></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ══ 第 3 页 · 运营节律 ════════════════════════════════════════ -->
+      <section class="page" data-page="2" aria-label="运营节律">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Rhythm</p>
+            <h2 class="page-title">运营节律</h2>
+          </div>
+          <p class="page-note" id="weekday-note"></p>
+        </div>
+
+        <div class="split split-b">
+          <section class="card card-fill" aria-labelledby="t-weekday">
+            <div class="card-head">
+              <div>
+                <h3 id="t-weekday">周内销售节律</h3>
+                <p class="card-sub">各星期日均 GMV</p>
+              </div>
+              <span class="badge" id="badge-weekday">—</span>
+            </div>
+            <p class="insight" id="insight-weekday"></p>
+            <div class="chart-wrap"><div class="chart" id="c-weekday" role="img"
+                 aria-label="周内各天日均 GMV 柱状图"></div></div>
+          </section>
+
+          <section class="card card-fill" aria-labelledby="t-volume">
+            <div class="card-head">
+              <div>
+                <h3 id="t-volume">订单量与客群规模</h3>
+                <p class="card-sub">月度订单数 / 下单客户数</p>
+              </div>
+              <span class="badge badge-ghost" id="badge-volume">—</span>
+            </div>
+            <p class="insight" id="insight-volume"></p>
+            <div class="chart-wrap"><div class="chart" id="c-volume" role="img"
+                 aria-label="月度订单数与客户数折线图"></div></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ══ 第 4 页 · 商品结构 ════════════════════════════════════════ -->
+      <section class="page" data-page="3" aria-label="商品结构">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Assortment</p>
+            <h2 class="page-title">商品结构</h2>
+          </div>
+          <p class="page-note" id="abc-note"></p>
+        </div>
+
+        <div class="split split-c">
+          <section class="card card-fill" aria-labelledby="t-abc">
+            <div class="card-head">
+              <div>
+                <h3 id="t-abc">ABC 分类</h3>
+                <p class="card-sub">累计贡献 80% / 95%</p>
+              </div>
+              <span class="badge" id="badge-abc">—</span>
+            </div>
+            <p class="insight" id="insight-abc"></p>
+            <div class="chart-wrap"><div class="chart" id="c-abc" role="img"
+                 aria-label="ABC 商品分类环形图"></div></div>
+          </section>
+
+          <section class="card card-fill card-table" aria-labelledby="t-abc-table">
+            <div class="card-head">
+              <div>
+                <h3 id="t-abc-table">分类明细</h3>
+                <p class="card-sub">点击表头排序</p>
+              </div>
+              <span class="badge badge-ghost" id="badge-abc-total">—</span>
+            </div>
+            <div class="table-wrap table-fill">
+              <table id="table-abc">
+                <thead><tr>
+                  <th data-sort="abc_class">分类</th>
+                  <th data-sort="sku_count" data-type="num" class="ta-r">SKU 数</th>
+                  <th data-sort="gmv" data-type="num" class="ta-r">GMV</th>
+                  <th data-sort="gmv_share_pct" data-type="num" class="ta-r">GMV 占比</th>
+                  <th data-sort="sku_pct" data-type="num" class="ta-r">SKU 占比</th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="card card-fill" aria-labelledby="t-pareto">
+            <div class="card-head">
+              <div>
+                <h3 id="t-pareto">头部商品与长尾</h3>
+                <p class="card-sub">Top 12 单品 GMV + 累计贡献曲线</p>
+              </div>
+              <span class="badge" id="badge-pareto">—</span>
+            </div>
+            <p class="insight" id="insight-pareto"></p>
+            <div class="chart-wrap"><div class="chart" id="c-pareto" role="img"
+                 aria-label="头部商品帕累托图"></div></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ══ 第 5 页 · 市场与单品 ══════════════════════════════════════ -->
+      <section class="page" data-page="4" aria-label="市场与单品">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Market</p>
+            <h2 class="page-title">市场与单品</h2>
+          </div>
+          <p class="page-note" id="market-note"></p>
+        </div>
+
+        <div class="split split-a">
+          <section class="card card-fill" aria-labelledby="t-country">
+            <div class="card-head">
+              <div>
+                <h3 id="t-country">国家 / 地区分布</h3>
+                <p class="card-sub">GMV Top 10</p>
+              </div>
+              <span class="badge" id="badge-country">—</span>
+            </div>
+            <p class="insight" id="insight-country"></p>
+            <div class="chart-wrap"><div class="chart" id="c-country" role="img"
+                 aria-label="国家 GMV 排名条形图"></div></div>
+          </section>
+
+          <section class="card card-fill" aria-labelledby="t-products">
+            <div class="card-head">
+              <div>
+                <h3 id="t-products">GMV Top 10 单品</h3>
+                <p class="card-sub">按销售额排名</p>
+              </div>
+              <span class="badge badge-ghost" id="badge-products">—</span>
+            </div>
+            <p class="insight" id="insight-products"></p>
+            <div class="chart-wrap"><div class="chart" id="c-products" role="img"
+                 aria-label="GMV 前十单品条形图"></div></div>
+          </section>
+        </div>
+
+        <p class="foot">
+          口径：GMV 为正向销售金额（<code>is_return = 0</code>），不含退货与取消单，金额单位英镑（£）。
+          游客订单计入 GMV，但因缺少客户 ID 不参与 RFM 分层。
+          数据源 UCI Machine Learning Repository · Online Retail II。
+        </p>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- ── 右侧页码轨 ────────────────────────────────────────────────────── -->
+  <nav class="rail" id="rail" aria-label="页面导航"></nav>
+
+  <div class="hint" id="hint">
+    <kbd>↑</kbd><kbd>↓</kbd> 或滚轮翻页
   </div>
-  <div class="card">
-    <h2>国家 / 地区 GMV Top10</h2>
-    <div class="chart" id="c-country"></div>
-  </div>
-  <div class="card">
-    <h2>周内日均销售 <span>运营排期参考</span></h2>
-    <div class="chart" id="c-weekday"></div>
-  </div>
+
 </div>
 
-<div class="grid g-11">
-  <div class="card">
-    <h2>GMV Top10 商品</h2>
-    <div class="chart" id="c-products"></div>
-  </div>
-  <div class="card">
-    <h2>头部商品累计贡献（帕累托曲线）</h2>
-    <div class="chart" id="c-pareto"></div>
-  </div>
-</div>
-
-<div class="grid g-11">
-  <div class="card">
-    <h2>RFM 分层明细</h2>
-    <table id="t-rfm"><thead><tr>
-      <th>客户分层</th><th>人数</th><th>平均R(天)</th><th>平均F(次)</th><th>平均M(元)</th><th>GMV贡献</th>
-    </tr></thead><tbody></tbody></table>
-  </div>
-  <div class="card">
-    <h2>ABC 商品分类明细</h2>
-    <table id="t-abc"><thead><tr>
-      <th>分类</th><th>SKU 数</th><th>GMV</th><th>GMV 占比</th>
-    </tr></thead><tbody></tbody></table>
-  </div>
-</div>
-
-<footer>数据源：UCI Machine Learning Repository · Online Retail II（2009-12 ~ 2011-12，英国在线零售商真实交易）</footer>
-
-<script>
-const API = "";
-const PALETTE = ["#1f5fbf","#3d8bd4","#5aaae0","#8bc4e8","#b8d9f0","#e08e0b","#c0392b"];
-const money = n => "£" + Number(n).toLocaleString("zh-CN", {maximumFractionDigits:0});
-const num = n => Number(n).toLocaleString("zh-CN");
-const charts = {};
-function chart(id){
-  if(!charts[id]) charts[id] = echarts.init(document.getElementById(id), null, {renderer:"canvas"});
-  return charts[id];
-}
-const axisStyle = {
-  axisLine:{lineStyle:{color:"#dfe5ec"}},
-  axisLabel:{color:"#6b7a90",fontSize:11},
-  splitLine:{lineStyle:{color:"#f0f3f7"}}
-};
-async function get(path){
-  const r = await fetch(API + path);
-  if(!r.ok) throw new Error(path + " " + r.status);
-  return r.json();
-}
-
-async function loadKpi(){
-  const d = await get("/api/kpi");
-  document.getElementById("k-gmv").innerHTML = money(d.gmv);
-  document.getElementById("k-orders").innerHTML = num(d.orders);
-  document.getElementById("k-customers").innerHTML = num(d.customers);
-  document.getElementById("k-aov").textContent = money(d.aov);
-  document.getElementById("k-return").innerHTML = d.return_rate + "<small>%</small>";
-  document.getElementById("k-lines").innerHTML = num(d.line_count);
-  document.getElementById("status").textContent =
-    "已连接 MySQL 数据仓库 · 事实表 " + num(d.line_count) + " 行 · 数据周期 " +
-    String(d.date_from).slice(0, 7) + " ~ " + String(d.date_to).slice(0, 7);
-}
-
-async function loadTrend(){
-  const d = await get("/api/trend");
-  chart("c-trend").setOption({
-    grid:{left:56,right:56,top:24,bottom:34},
-    tooltip:{trigger:"axis"},
-    legend:{data:["GMV","订单数"],right:0,top:0,textStyle:{color:"#6b7a90",fontSize:11},itemWidth:14,itemHeight:8},
-    xAxis:{type:"category",data:d.map(r=>r.month),...axisStyle,splitLine:{show:false},axisLabel:{...axisStyle.axisLabel,rotate:45,interval:2}},
-    yAxis:[
-      {type:"value",name:"GMV",nameTextStyle:{color:"#6b7a90",fontSize:11},...axisStyle,axisLine:{show:false}},
-      {type:"value",name:"订单数",nameTextStyle:{color:"#6b7a90",fontSize:11},...axisStyle,axisLine:{show:false},splitLine:{show:false}}
-    ],
-    series:[
-      {name:"GMV",type:"line",smooth:true,symbol:"none",data:d.map(r=>r.gmv),
-       lineStyle:{width:2.2,color:"#1f5fbf"},
-       areaStyle:{color:{type:"linear",x:0,y:0,x2:0,y2:1,colorStops:[
-         {offset:0,color:"rgba(31,95,191,.22)"},{offset:1,color:"rgba(31,95,191,0)"}]}}},
-      {name:"订单数",type:"line",yAxisIndex:1,smooth:true,symbol:"none",data:d.map(r=>r.orders),
-       lineStyle:{width:1.6,color:"#e08e0b",type:"dashed"}}
-    ]
-  });
-}
-
-async function loadRfm(){
-  const d = await get("/api/rfm");
-  chart("c-rfm").setOption({
-    tooltip:{trigger:"item",formatter:p=>`${p.name}<br/>客户数 ${num(p.value)}<br/>占比 ${p.percent}%`},
-    legend:{orient:"vertical",right:0,top:"middle",textStyle:{color:"#6b7a90",fontSize:11},itemWidth:10,itemHeight:10},
-    series:[{
-      type:"pie",radius:["46%","70%"],center:["38%","52%"],avoidLabelOverlap:true,
-      itemStyle:{borderColor:"#fff",borderWidth:2},
-      label:{show:false},
-      emphasis:{label:{show:true,fontSize:12,fontWeight:600,formatter:"{b}\n{c} 人"}},
-      data:d.map((r,i)=>({name:r.segment,value:r.customers,
-        itemStyle:{color:PALETTE[i%PALETTE.length]}}))
-    }]
-  });
-  document.querySelector("#t-rfm tbody").innerHTML = d.map(r=>`<tr>
-    <td><span class="tag">${r.segment}</span></td><td>${num(r.customers)}</td>
-    <td>${r.avg_recency_days}</td><td>${r.avg_frequency}</td>
-    <td>${money(r.avg_monetary)}</td><td>${money(r.total_gmv)}</td></tr>`).join("");
-}
-
-async function loadAbc(){
-  const d = await get("/api/abc");
-  chart("c-abc").setOption({
-    tooltip:{trigger:"item",formatter:p=>`${p.name}<br/>SKU ${num(p.data.sku)}<br/>GMV 占比 ${p.data.share}%`},
-    series:[{
-      type:"pie",radius:["48%","72%"],center:["50%","52%"],
-      itemStyle:{borderColor:"#fff",borderWidth:2},
-      label:{formatter:"{b}\n{d}%",fontSize:11,color:"#6b7a90"},
-      data:d.map((r,i)=>({name:r.abc_class,value:r.sku_count,sku:r.sku_count,share:r.gmv_share_pct,
-        itemStyle:{color:["#1f5fbf","#5aaae0","#c8d6e5"][i%3]}}))
-    }]
-  });
-  document.querySelector("#t-abc tbody").innerHTML = d.map(r=>`<tr>
-    <td><span class="tag">${r.abc_class}</span></td><td>${num(r.sku_count)}</td>
-    <td>${money(r.gmv)}</td><td>${r.gmv_share_pct}%</td></tr>`).join("");
-}
-
-async function loadCountry(){
-  const d = (await get("/api/country")).slice().reverse();
-  chart("c-country").setOption({
-    grid:{left:96,right:22,top:10,bottom:22},
-    tooltip:{trigger:"axis",axisPointer:{type:"shadow"}},
-    xAxis:{type:"value",...axisStyle,axisLabel:{...axisStyle.axisLabel,formatter:v=>v>=1e6?(v/1e6)+"M":v}},
-    yAxis:{type:"category",data:d.map(r=>r.country),...axisStyle,splitLine:{show:false},
-      axisLabel:{...axisStyle.axisLabel,width:88,overflow:"truncate"}},
-    series:[{type:"bar",data:d.map(r=>r.gmv),barWidth:"58%",
-      itemStyle:{color:"#3d8bd4",borderRadius:[0,3,3,0]}}]
-  });
-}
-
-async function loadWeekday(){
-  const d = await get("/api/weekday");
-  chart("c-weekday").setOption({
-    grid:{left:52,right:18,top:16,bottom:28},
-    tooltip:{trigger:"axis",formatter:p=>`${p[0].name}<br/>日均 ${money(p[0].value)}`},
-    xAxis:{type:"category",data:d.map(r=>r.weekday),...axisStyle,splitLine:{show:false}},
-    yAxis:{type:"value",...axisStyle,axisLabel:{...axisStyle.axisLabel,formatter:v=>v>=1000?(v/1000)+"k":v}},
-    series:[{type:"bar",data:d.map(r=>r.avg_gmv),barWidth:"46%",
-      itemStyle:{color:p=>["#1f5fbf","#1f5fbf","#1f5fbf","#1f5fbf","#1f5fbf","#e08e0b","#e08e0b"][p.dataIndex],
-        borderRadius:[3,3,0,0]}}]
-  });
-}
-
-async function loadProducts(){
-  const d = (await get("/api/top-products")).slice().reverse();
-  chart("c-products").setOption({
-    grid:{left:52,right:26,top:12,bottom:24},
-    tooltip:{trigger:"axis",formatter:p=>{
-      const r=d[p[0].dataIndex];
-      return `${r.description}<br/>GMV ${money(r.gmv)}<br/>销量 ${num(r.qty)} 件`;
-    }},
-    xAxis:{type:"value",...axisStyle,axisLabel:{...axisStyle.axisLabel,formatter:v=>v>=1000?(v/1000)+"k":v}},
-    yAxis:{type:"category",data:d.map(r=>(r.description||"").slice(0,26)),...axisStyle,
-      splitLine:{show:false},axisLabel:{...axisStyle.axisLabel,width:150,overflow:"truncate",fontSize:10.5}},
-    series:[{type:"bar",data:d.map(r=>r.gmv),barWidth:"54%",
-      itemStyle:{color:"#1f5fbf",borderRadius:[0,3,3,0]}}]
-  });
-}
-
-async function loadPareto(){
-  const d = await get("/api/pareto?top=30");
-  chart("c-pareto").setOption({
-    grid:{left:54,right:52,top:20,bottom:24},
-    tooltip:{trigger:"axis"},
-    xAxis:{type:"category",data:d.map(r=>"#"+r.rn),...axisStyle,splitLine:{show:false}},
-    yAxis:[{type:"value",name:"GMV",nameTextStyle:{color:"#6b7a90",fontSize:11},...axisStyle,axisLine:{show:false}},
-           {type:"value",name:"累计%",max:100,nameTextStyle:{color:"#6b7a90",fontSize:11},
-            ...axisStyle,axisLine:{show:false},splitLine:{show:false}}],
-    series:[
-      {type:"bar",data:d.map(r=>r.gmv),barWidth:"52%",itemStyle:{color:"#b8d9f0",borderRadius:[2,2,0,0]}},
-      {type:"line",yAxisIndex:1,data:d.map(r=>r.cum_pct),smooth:true,symbol:"none",
-       lineStyle:{width:2,color:"#c0392b"},
-       markLine:{silent:true,symbol:"none",
-         lineStyle:{color:"#e08e0b",type:"dashed",width:1},
-         label:{formatter:"80% 临界",color:"#e08e0b",fontSize:10},
-         data:[{yAxis:80}]}}
-    ]
-  });
-}
-
-(async function(){
-  try{
-    await loadKpi();
-    await Promise.all([loadTrend(),loadRfm(),loadAbc(),loadCountry(),
-                       loadWeekday(),loadProducts(),loadPareto()]);
-  }catch(e){
-    document.getElementById("status").textContent = "加载失败：" + e.message +
-      "（请确认后端已启动且 ETL 已完成）";
-  }
-})();
-
-window.addEventListener("resize", () => Object.values(charts).forEach(c=>c.resize()));
-</script>
+<script src="/static/assets/echarts.min.js"></script>
+<script src="/static/assets/app.js"></script>
 </body>
 </html>

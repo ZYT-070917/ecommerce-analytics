@@ -48,7 +48,7 @@
 | 数据来源 | UCI Machine Learning Repository — Online Retail II |
 | 技术栈 | Python 3、pandas、MySQL 8.0、SQLAlchemy、FastAPI、ECharts |
 | 产出形态 | 本地可运行的数据仓库、REST API、单页可视化看板 |
-| 代码规模 | 974 行（ETL 260，API 263，看板 288，DDL 与视图 69，启动脚本 94） |
+| 代码规模 | 2,845 行（ETL 260，API 263，看板 2,159，DDL 与视图 69，启动脚本 94） |
 
 ---
 
@@ -141,7 +141,7 @@
 1. 数据源：UCI Online Retail II 的 Excel 文件，约 107 万行原始明细。
 2. ETL（`etl/build_dw.py`）：`extract()` 读取、`clean()` 清洗、`build_dims()` 构建维度、`load()` 建表装载。
 3. 数据仓库（MySQL 8.0，库名 `biz_analytics`）：星型模型，一张事实表加三张维度表。
-4. 服务与展示：FastAPI 提供接口，`web/index.html` 用 ECharts 渲染看板。
+4. 服务与展示：FastAPI 提供接口，`web/` 下的五页横向翻板看板用 ECharts 渲染。
 
 仓库各表的数据量：
 
@@ -511,10 +511,31 @@ group by d.year, d.month, d.month_name
 
 ### 7. 前端不引入构建工具
 
-`web/index.html` 单文件包含 HTML、CSS 和 JavaScript，ECharts 通过 CDN 引入，
-不需要 npm、webpack 或 vite。对于个人项目快速看到效果和方便部署来说，这种方案足够。
-数据获取时先单独请求 KPI 接口，其余 7 个接口用 `Promise.all` 并发发出，
-避免逐个串行等待，全页共涉及 8 个接口。
+`web/` 下只有 `index.html`、`assets/app.css`、`assets/app.js` 三个文件，
+按结构 / 样式 / 逻辑拆开，但都是浏览器直接能跑的原生文件，不需要 npm、webpack 或 vite。
+ECharts 已经从 CDN 下载到 `assets/echarts.min.js` 本地引用，
+这样别人克隆仓库演示时不受网络影响，首屏也少一次外网请求。
+
+数据获取是一次拿全：启动时并发请求 8 个接口，全部到齐后一次性渲染五页，
+之后翻页和换主题都不再发请求，因此界面上不会出现任何加载状态。
+
+### 8. 主题配色连着整页底色一起换
+
+六套配色（靛蓝 / 青碧 / 罗兰 / 琥珀 / 绯红 / 墨夜）不只是换主色，
+每套都带一组完整的表面色：页面底色、卡片色、凹陷面、两级描边。
+
+```js
+{ id: "teal", accent: "#0f766e",
+  bg: "#eaf5f2", surface: "#fcfffe", sunk: "#f3fbf8",
+  bd: "#d7eae5", bd2: "#c2e0d8" }
+```
+
+切换时由 JS 写入 `:root` 的 CSS 变量，再叠加两团由主色派生、透明度只有 10% 的径向渐变，
+页面左上和右上会带一点主题色的晕染。这样换主题后整页的冷暖调一致，
+而不是只有按钮和折线变了色、其余仍是原来的冷灰底。
+
+图表那一层由 `P()` 函数读取同一组 token（坐标轴、分割线、环形图间隙色），
+所以 CSS 和 canvas 永远是同一个颜色，不会出现"图例是青色、背景还是蓝灰"的割裂。
 
 ---
 
