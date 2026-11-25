@@ -966,12 +966,7 @@
 
   /* ── 10. 装配 ────────────────────────────────────────────────────────── */
 
-  function showIntro() {
-    const box = el("intro");
-    box.classList.add("is-show");
-    box.setAttribute("aria-hidden", "false");
-  }
-
+  // 遮罩的"显形"在 index.html 的内联脚本里完成，这里只负责收场
   function hideIntro() {
     const box = el("intro");
     box.classList.remove("is-show");
@@ -999,7 +994,10 @@
    * 2) 一次性渲染五个页面
    * 3) 之后再怎么翻页、换主题，都不会有加载态
    *
-   * 遮罩有 200ms 延迟才显形：数据来得快的话（后端已缓存），用户根本看不到它。
+   * 首屏由 <html class="is-booting"> 兜住：外壳从第一次绘制起就是隐藏的，
+   * 数据到齐后整体淡入，不会先露出"—"指标和空图表。
+   * 遮罩在 HTML 里就显形（不等 JS 解析），所以从第一帧起就是"盖住"的状态，
+   * 中间没有空白帧，也没有半个页面的闪烁。
    */
   async function boot() {
     buildThemes();
@@ -1015,12 +1013,10 @@
     const urlTheme = new URLSearchParams(location.search).get("theme");
     applyTheme(urlTheme || savedTheme || "blue", !urlTheme);
 
-    let introTimer = setTimeout(showIntro, 200);
-
+    // 遮罩在 HTML 里就已显形（见 index.html 的内联脚本），这里不再排队等待
     try {
       await preload(introProgress);
     } catch (err) {
-      clearTimeout(introTimer);
       introError(err);
       el("intro-retry").addEventListener("click", () => {
         el("intro").classList.remove("is-error");
@@ -1029,15 +1025,25 @@
       return;
     }
 
-    clearTimeout(introTimer);
+    try {
+      if (typeof echarts === "undefined") throw new Error("图表库 echarts.min.js 没有加载成功");
+      renderText();
+      renderCharts();
+      renderTables();
+    } catch (err) {
+      introError(err);
+      return;
+    }
 
-    renderText();
-    renderCharts();
-    renderTables();
+    // 首屏定位到深链指定的那一页，禁用动画，避免一睁眼就看到从第 1 页滑过去
+    track.classList.add("no-anim");
+    applyPage();
 
+    // 撤掉 is-booting 让外壳淡入，同时收掉遮罩：交叉过渡，中间不露空白帧
     requestAnimationFrame(() => {
+      document.documentElement.classList.remove("is-booting");
       hideIntro();
-      applyPage();
+      requestAnimationFrame(() => track.classList.remove("no-anim"));
       setTimeout(() => Object.values(charts).forEach((c) => c.resize()), 120);
     });
   }

@@ -1,16 +1,37 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="is-booting">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>电商经营分析 · Online Retail II</title>
 <meta name="theme-color" content="#f1f4fb">
 <link rel="icon" href="data:,">
+
+<!-- 首屏防闪：这一小段内联样式必须排在外链 CSS 之前，
+     否则样式表还在路上时，浏览器会先把没有数据的外壳画出来 -->
+<style>
+  html.is-booting .app { opacity: 0 !important; }
+  html.is-booting body { background-color: var(--bg, #f1f4fb); }
+</style>
+
+<!-- 在第一次绘制前就把底色定好，深色主题用户不会先看到一瞬白屏 -->
+<script>
+  (function () {
+    try {
+      var t = new URLSearchParams(location.search).get("theme") ||
+              localStorage.getItem("ea-theme");
+      var bg = { blue: "#f1f4fb", teal: "#eaf5f2", violet: "#f2effb",
+                 amber: "#fdf4e4", rose: "#fdeff2", ink: "#0b111c" }[t];
+      if (bg) document.documentElement.style.setProperty("--bg", bg);
+    } catch (e) { /* 老浏览器或隐私模式，忽略 */ }
+  })();
+</script>
+
 <link rel="stylesheet" href="/static/assets/app.css">
 </head>
 <body>
 
-<!-- ── 启动遮罩：只在首屏数据真的慢时才会显形，常态一闪而过 ───────────── -->
+<!-- ── 启动遮罩：从第一帧就盖住整页，数据到齐后淡出、外壳淡入 ──────────── -->
 <div class="intro" id="intro" aria-hidden="true">
   <div class="intro-inner">
     <div class="intro-mark">OR</div>
@@ -21,6 +42,20 @@
     <button class="intro-retry" id="intro-retry" type="button">重新连接</button>
   </div>
 </div>
+
+<!-- 遮罩立刻显形：这一句不等 app.js 和图表库解析完，
+     否则那 200ms 里页面上只有一片背景，看着像卡住。
+     is-now 让"第一次出现"不走淡入，避免开场先闪一下半透明 -->
+<script>
+  (function () {
+    var box = document.getElementById("intro");
+    box.classList.add("is-show", "is-now");
+    box.setAttribute("aria-hidden", "false");
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { box.classList.remove("is-now"); });
+    });
+  })();
+</script>
 
 <div class="app" id="app">
 
@@ -313,7 +348,10 @@
 
 </div>
 
-<script src="/static/assets/echarts.min.js"></script>
-<script src="/static/assets/app.js"></script>
+<!-- 脚本挂了要说话：否则 is-booting 没人撤，页面会一直空白 -->
+<script src="/static/assets/echarts.min.js"
+        onerror="document.getElementById('intro-note').textContent='图表库加载失败：/static/assets/echarts.min.js';document.getElementById('intro').className='intro is-show is-error';"></script>
+<script src="/static/assets/app.js"
+        onerror="document.getElementById('intro-note').textContent='脚本加载失败：/static/assets/app.js，请刷新页面';document.getElementById('intro').className='intro is-show is-error';"></script>
 </body>
 </html>
