@@ -48,7 +48,7 @@
 | 数据来源 | UCI Machine Learning Repository — Online Retail II |
 | 技术栈 | Python 3、pandas、MySQL 8.0、SQLAlchemy、FastAPI、ECharts |
 | 产出形态 | 本地可运行的数据仓库、REST API、单页可视化看板 |
-| 代码规模 | 795 行（ETL 217 行，API 232 行，看板 287 行，DDL 59 行） |
+| 代码规模 | 865 行（ETL 260 行，API 259 行，看板 288 行，DDL 58 行） |
 
 ---
 
@@ -183,10 +183,16 @@
 | `amount` | DECIMAL(14,2) | 金额，等于数量乘单价 |
 | `is_return` | TINYINT(1) | 1 表示退货或取消单 |
 | `is_product` | TINYINT(1) | 0 表示非商品项，如邮费、手续费、礼品券 |
+| `is_guest` | TINYINT(1) | 1 表示无客户 ID 的游客订单 |
 | `country` | VARCHAR(64) | 国家 |
+| `source_sheet` | VARCHAR(64) | 数据血缘：这行来自 Excel 哪个 sheet |
+| `source_row` | INT | 数据血缘：在源 sheet 中的行号，表头占第 1 行 |
 
 索引建在 `date_key`、`customer_id`、`stock_code`、`invoice_no` 四个字段上，
 覆盖看板涉及的查询条件。
+
+最后两列是数据血缘。`line_no` 是清洗删行后按订单重新编的序号，和源文件行号对不上，
+排查某条脏数据从哪来时，只能靠 `source_sheet` 加 `source_row` 回到原始 Excel 定位。
 
 ### dim_date（739 行）
 
@@ -199,11 +205,22 @@
 ### dim_customer（5,939 行）
 
 字段包括 `customer_id`（主键）、`country`、`first_order_date`、`last_order_date`、
-`total_orders`、`total_amount`、`is_guest`。
+`total_orders`、`total_amount`。
+
+这里有一处口径需要说明。首末单日期看的是客户全生命周期，包含退货记录；
+而 `total_orders` 与 `total_amount` 只统计正向销售，即 `is_return = 0` 的行。
+这样处理的目的是和 `/api/rfm` 里 F、M 的定义保持一致，两边可以直接对账。
+此前这两个字段把邮费、非商品项以及退货负值都算了进去，和 RFM 对不上。
+
+该表只装有 `customer_id` 的客户，游客不在其中，因此没有 `is_guest` 字段，
+游客标记放在事实表上。
 
 ### dim_product（4,741 行）
 
 字段包括 `stock_code`（主键）、`description`（VARCHAR(255)）、`avg_price`。
+
+同一 SKU 在不同订单里可能有多条描述，这里取**最长**的一条。原先取最后一条，
+会被最后一次录入的促销短名覆盖，甚至变成 `(无描述)`。
 
 该表只收录真实商品，邮费和手续费等虚拟编码不进维度表。
 因此 `fact_sales` 与它做内连接时会丢掉这部分非商品行，这是预期行为。
@@ -350,7 +367,7 @@ curl http://127.0.0.1:8000/api/health
 | 方法 | 路径 | 参数 | 说明 |
 |---|---|---|---|
 | GET | `/` | 无 | 返回看板页面 |
-| GET | `/api/kpi` | 无 | 核心指标：gmv、orders、customers、aov、return_rate、line_count |
+| GET | `/api/kpi` | 无 | 核心指标：gmv、orders、customers、aov、return_rate、line_count、date_from、date_to |
 | GET | `/api/trend` | 无 | 月度趋势，25 条，含 month、gmv、orders、customers |
 | GET | `/api/rfm` | 无 | RFM 六分层，含 segment、customers、avg_recency_days、avg_frequency、avg_monetary、total_gmv |
 | GET | `/api/abc` | 无 | ABC 三类，含 abc_class、sku_count、gmv、gmv_share_pct |
@@ -369,7 +386,7 @@ $ curl -s http://127.0.0.1:8000/api/kpi
 $ curl -s "http://127.0.0.1:8000/api/top-products?limit=3"
 [{"stock_code":"22423","description":"REGENCY CAKESTAND 3 TIER","gmv":331084.27,"qty":26519,"orders":3918},
  {"stock_code":"85123A","description":"CREAM HANGING HEART T-LIGHT HOLDER","gmv":261509.93,"qty":94839,"orders":5464},
- {"stock_code":"85099B","description":"JUMBO BAG RED RETROSPOT","gmv":185566.47,"qty":98768,"orders":4013}]
+ {"stock_code":"85099B","description":"JUMBO BAG RED RETROSPOT","gmv":182999.67,"qty":97350,"orders":4013}]
 ```
 
 ---

@@ -16,8 +16,16 @@ from sqlalchemy import create_engine, text
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 DB_URL = os.getenv("DATABASE_URL")
-SERVER_URL = DB_URL.rsplit("/", 1)[0] + "/"   # 不指定库名，用于首次建库
+DB_NAME = DB_URL.rsplit("/", 1)[-1].split("?")[0]   # 从连接串解析库名，避免硬编码
+SERVER_URL = DB_URL.rsplit("/", 1)[0] + "/"         # 不指定库名，用于首次建库
 RAW = ROOT / "raw" / "online_retail_II.xlsx"
+
+# 字段长度：必须与 sql/schema.sql 里的 VARCHAR 声明保持一致，改一处要同步另一处
+LEN_INVOICE = 20
+LEN_STOCK = 32
+LEN_DESC = 255
+LEN_COUNTRY = 64
+LEN_SHEET = 64
 
 # 非商品项编码：邮费、手工调整、手续费、礼品券等
 # 计入营收（GMV），但必须排除在商品维度分析之外，否则污染 ABC / 帕累托
@@ -56,7 +64,15 @@ def extract() -> pd.DataFrame:
     # 直接 concat 会让这 9 天被读两遍 —— 实测 22,665 行重复、GMV 虚高约 44 万。
     # 所以第二个及以后的 sheet 只保留"第一个 sheet 最后一天之后"的行。
     # 注意：不能整体 drop_duplicates，同一订单里同商品买两次是合法的业务数据。
-    frames = list(sheets.values())
+    # 顺便带上数据血缘：这一行来自哪个 sheet、在 Excel 里是第几行（表头占第 1 行）。
+    # line_no 是清洗删行后按订单重新编的号，和源文件行号对不上，出问题只能靠这两列回溯。
+    frames = []
+    for name, f in sheets.items():
+        f = f.copy()
+        f["source_sheet"] = name
+        f["source_row"] = f.index + 2
+        frames.append(f)
+
     first, rest = frames[0], frames[1:]
     last_date = pd.to_datetime(first["InvoiceDate"]).max()
     kept = [first] + [f[pd.to_datetime(f["InvoiceDate"]) > last_date] for f in rest]
@@ -114,6 +130,18 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------- 3. 构建维度 ----------
+def longest_description(s: pd.Series) -> str:
+    """同一 SKU 取最长的一条商品描述。
+
+    原来取 last，会被最后一次"促销改名/短名"覆盖成残缺描述甚至 (无描述)。
+    最长的那条通常就是完整商品名。
+    """
+    s = s[s != "(无描述)"]
+    if s.empty:
+        return "(无描述)"
+    return s.iloc[s.str.len().argmax()]
+
+
 def build_dims(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     # 日期维度：覆盖数据首日到末日，保证趋势图时间轴连续
     dates = pd.date_range(df["invoice_date"].min().normalize(),
@@ -133,23 +161,34 @@ def build_dims(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFra
     # 商品维度：只收真实商品
     products = df[df["is_product"] == 1]
     dim_product = (products.groupby("stock_code")
-                   .agg(description=("description", "last"),
+                   .agg(description=("description", longest_description),
                         avg_price=("price", "mean"))
                    .reset_index())
     dim_product["avg_price"] = dim_product["avg_price"].round(2)
-    dim_product["description"] = dim_product["description"].str.slice(0, 255)  # 对应 VARCHAR(255)
+    dim_product["description"] = dim_product["description"].str.slice(0, LEN_DESC)
 
     # 客户维度（游客不计入）
+    # 分两块取，因为口径不同：
+    #   - 首末单日期 / 国家：看客户全生命周期，含退货单（退货也是一次交互）
+    #   - 订单数 / 消费额：只算正向销售（is_return=0），和 API 里 RFM 的 F / M 完全一致。
+    #     否则维度表的金额含邮费和非商品项、还被退货负值冲抵，跟 RFM 对不上账。
     valid = df[df["is_guest"] == 0]
-    dim_customer = (valid.groupby("customer_id")
-                    .agg(country=("country", "last"),
-                         first_order_date=("invoice_date", lambda s: s.min().date()),
-                         last_order_date=("invoice_date", lambda s: s.max().date()),
-                         total_orders=("invoice_no", "nunique"),   # 去重订单数，不是行数
-                         total_amount=("amount", "sum"))
-                    .reset_index())
-    dim_customer["total_amount"] = dim_customer["total_amount"].round(2)
-    dim_customer["is_guest"] = 0
+    profile = (valid.groupby("customer_id")
+               .agg(country=("country", "last"),
+                    first_order_date=("invoice_date", lambda s: s.min().date()),
+                    last_order_date=("invoice_date", lambda s: s.max().date()))
+               .reset_index())
+    revenue = (valid[valid["is_return"] == 0]
+               .groupby("customer_id")
+               .agg(total_orders=("invoice_no", "nunique"),   # 去重订单数，不是行数
+                    total_amount=("amount", "sum"))
+               .reset_index())
+    dim_customer = profile.merge(revenue, on="customer_id", how="left")
+    # customer_id 原本带 NaN → 被 pandas 推成 float，这里转回整数再写 BIGINT 主键
+    dim_customer["customer_id"] = dim_customer["customer_id"].astype("int64")
+    # 只有退货单、没有正向销售的客户：补 0，否则 NaN 写不进 MySQL
+    dim_customer["total_orders"] = dim_customer["total_orders"].fillna(0).astype(int)
+    dim_customer["total_amount"] = dim_customer["total_amount"].fillna(0).round(2)
 
     log(f"维度构建完成: 日期 {len(dim_date)} / 商品 {len(dim_product):,} / 客户 {len(dim_customer):,}")
     return dim_date, dim_product, dim_customer
@@ -162,7 +201,7 @@ def load(dims, fact: pd.DataFrame) -> None:
     # 库可能还不存在（首次运行 / 手动删过库），先用不带库名的连接串建库
     server_engine = create_engine(SERVER_URL, pool_pre_ping=True)
     with server_engine.begin() as conn:
-        conn.execute(text("CREATE DATABASE IF NOT EXISTS biz_analytics "
+        conn.execute(text(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}` "
                           "DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"))
     server_engine.dispose()
 
@@ -186,15 +225,19 @@ def load(dims, fact: pd.DataFrame) -> None:
         log(f"已装载 {name}: {len(d):,} 行")
 
     fact_cols = ["invoice_no", "line_no", "stock_code", "customer_id", "date_key",
-                 "quantity", "price", "amount", "is_return", "is_product", "country"]
+                 "quantity", "price", "amount", "is_return", "is_product", "is_guest",
+                 "country", "source_sheet", "source_row"]
     fact = fact[fact_cols].copy()
 
-    # 类型对齐数据库字段
+    # 类型对齐数据库字段（长度常量在文件顶部，与 schema.sql 对应）
     fact["customer_id"] = to_nullable_int(fact["customer_id"])   # 缺失 -> NULL
-    fact["stock_code"] = fact["stock_code"].astype(str).str.slice(0, 32)
-    fact["invoice_no"] = fact["invoice_no"].astype(str).str.slice(0, 20)
+    fact["stock_code"] = fact["stock_code"].astype(str).str.slice(0, LEN_STOCK)
+    fact["invoice_no"] = fact["invoice_no"].astype(str).str.slice(0, LEN_INVOICE)
+    fact["source_sheet"] = fact["source_sheet"].astype(str).str.slice(0, LEN_SHEET)
+    fact["source_row"] = fact["source_row"].astype(int)
 
     fact["country"] = fact["country"].astype(object).where(fact["country"].notna(), None)
+    fact["country"] = fact["country"].str.slice(0, LEN_COUNTRY)
     fact["price"] = fact["price"].astype(float).round(2)
     fact["amount"] = fact["amount"].astype(float).round(2)
 

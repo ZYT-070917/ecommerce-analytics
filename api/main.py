@@ -3,13 +3,16 @@
 #启动:uvicorn api.main:app --reload --port 8000
 #文档:http://127.0.0.1:8000/docs
 
+import logging
 import os
+import traceback
 from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine, text
 
@@ -17,8 +20,29 @@ ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 engine = create_engine(os.getenv("DATABASE_URL"), pool_pre_ping=True)
 
-app = FastAPI(title="电商经营分析平台", version="1.0")
+app = FastAPI(title="电商经营分析平台", version="1.0.2")
 app.mount("/static", StaticFiles(directory=ROOT / "web"), name="static")
+
+# 前端如果从别的端口/域名访问（例如把 web/ 单独部署），没有 CORS 会被浏览器直接拦掉。
+# 本地开发全放开；真要公网部署时应把 allow_origins 收紧成具体域名。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
+
+logger = logging.getLogger("api")
+
+
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    """兜底：数据库连不上时，别让前端只看到一坨 500 堆栈。"""
+    logger.error("请求失败 %s: %s\n%s", request.url.path, exc, traceback.format_exc())
+    return JSONResponse(
+        status_code=500,
+        content={"status": "error", "path": request.url.path, "detail": str(exc)},
+    )
 
 
 def q(sql: str, **params) -> list[dict]:
@@ -46,7 +70,10 @@ def kpi():
             -- 否则数据里一旦出现正数量的退货单，退货率会算成负数。
             ROUND(ABS(SUM(CASE WHEN is_return = 1 THEN amount END))
                   / NULLIF(SUM(CASE WHEN is_return = 0 THEN amount END), 0) * 100, 2) AS return_rate,
-            COUNT(*) AS line_count
+            COUNT(*) AS line_count,
+            -- 数据周期交给后端算，前端不再写死 "2009-12 ~ 2011-12"
+            (SELECT MIN(full_date) FROM dim_date) AS date_from,
+            (SELECT MAX(full_date) FROM dim_date) AS date_to
         FROM fact_sales
     """
     return q(sql)[0]

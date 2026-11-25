@@ -1,11 +1,8 @@
 -- 电商经营分析数据仓库（星型模型）
 -- 事实表: fact_sales  维度表: dim_customer / dim_product / dim_date
-
-CREATE DATABASE IF NOT EXISTS biz_analytics
-    DEFAULT CHARACTER SET utf8mb4
-    COLLATE utf8mb4_unicode_ci;
-
-USE biz_analytics;
+--
+-- 说明：建库、切库由 etl/build_dw.py 负责（库名取自 .env 的 DATABASE_URL），
+-- 本文件只保留纯 DDL —— 避免库名在 .env / .py / .sql 三处各硬编码一份。
 
 -- ---------- 维度：日期 ----------
 CREATE TABLE IF NOT EXISTS dim_date (
@@ -26,9 +23,8 @@ CREATE TABLE IF NOT EXISTS dim_customer (
     country       VARCHAR(64),
     first_order_date DATE,
     last_order_date  DATE,
-    total_orders  INT DEFAULT 0,          -- 去重订单数
-    total_amount  DECIMAL(14,2) DEFAULT 0,
-    is_guest      TINYINT(1) DEFAULT 0
+    total_orders  INT DEFAULT 0,          -- 去重订单数（只算正向销售，口径同 RFM 的 F）
+    total_amount  DECIMAL(14,2) DEFAULT 0 -- 正向销售金额（只算 is_return=0，口径同 RFM 的 M）
 ) ENGINE=InnoDB;
 
 -- ---------- 维度：商品 ----------
@@ -51,7 +47,10 @@ CREATE TABLE IF NOT EXISTS fact_sales (
     amount      DECIMAL(14,2) NOT NULL,   -- quantity * price
     is_return   TINYINT(1) DEFAULT 0,     -- 退货/取消单标记
     is_product  TINYINT(1) DEFAULT 1,     -- 0=非商品项（邮费/手工调整/礼品券等）
+    is_guest    TINYINT(1) DEFAULT 0,     -- 1=无客户 ID 的游客订单
     country     VARCHAR(64),
+    source_sheet VARCHAR(64),             -- 数据血缘：来自 Excel 哪一个 sheet
+    source_row  INT,                      -- 数据血缘：在源 sheet 中的行号（表头占第 1 行）
     KEY idx_fact_date (date_key),
     KEY idx_fact_customer (customer_id),
     KEY idx_fact_stock (stock_code),

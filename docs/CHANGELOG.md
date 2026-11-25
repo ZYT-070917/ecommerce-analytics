@@ -29,6 +29,82 @@
 
 ---
 
+## [1.0.2] — 2026-11-25
+
+> **修订版本（Z +1）**：修正维度表口径、补齐数据血缘、收敛硬编码。
+> ⚠️ **表结构有变更**（`fact_sales` 新增 3 列、`dim_customer` 删除 1 列），升级必须重跑 ETL。
+
+### 修复 Fixed
+
+#### 1. `dim_customer` 的订单数与金额口径和 RFM 对不上账
+
+- **根因**：`dim_customer.total_orders / total_amount` 按全表聚合，把邮费、非商品项
+  和退货负值都算了进去；而 `/api/rfm` 的 F / M 只统计 `is_return=0`。
+  同一个客户在两张表里会有两个不同的消费额，无法互相校验。
+- **修复**：拆成两块聚合 —— 首末单日期与国家级看客户全生命周期（含退货），
+  `total_orders / total_amount` 只算正向销售，与 RFM 完全同源。
+- **验证**：客户 17850 在 `dim_customer` 与 RFM 口径下均为 **51,208.87**，一致。
+
+#### 2. 商品描述取 `last`，会被促销短名覆盖
+
+- **根因**：`dim_product` 用 `agg(description=("description", "last"))`，
+  同一 SKU 若最后一次录入的是促销短名甚至空描述，完整品名就被覆盖。
+- **修复**：新增 `longest_description()`，跳过 `(无描述)` 后取最长的一条。
+- **结果**：`dim_product` 中 `(无描述)` 的商品数降为 **0**。
+
+#### 3. `dim_customer.is_guest` 恒为 0 的死字段
+
+- **根因**：该表只装有 `customer_id` 的客户，游客根本不进来，所以这列永远是 0；
+  而 `clean()` 里算出的 `is_guest` 反而没写进事实表。
+- **修复**：标记位跟着事实走 —— `is_guest` 移入 `fact_sales`，`dim_customer` 删掉该列。
+  现在可以直接 `WHERE is_guest = 1` 统计游客，不用再写 `customer_id IS NULL`。
+
+#### 4. `line_no` 与 Excel 源行号脱钩，出问题无法回溯
+
+- **根因**：`line_no` 是清洗删行后按订单重新编号的，和源文件行号没有对应关系，
+  发现一条脏数据时无法定位到原始 Excel 的哪一行。
+- **修复**：`extract()` 阶段打上数据血缘 ——
+  `source_sheet`（来自哪个 sheet）+ `source_row`（在源 sheet 中的行号，表头占第 1 行）。
+
+### 优化 Changed
+
+- **字段长度不再两处维护**：`build_dw.py` 顶部新增 `LEN_INVOICE / LEN_STOCK / LEN_DESC`
+  等常量，与 `schema.sql` 的 VARCHAR 声明一一对应，改一处即可。
+- **库名不再硬编码**：库名由 `DATABASE_URL` 解析（`DB_NAME`），
+  `schema.sql` 移除了 `CREATE DATABASE` 与 `USE`，改为纯 DDL，
+  库名从原来的 3 处收敛到 `.env` 1 处。
+- **数据周期不再写死**：`/api/kpi` 新增 `date_from` / `date_to`，
+  前端状态栏由接口返回值拼接，换数据集不用改前端。
+- **补齐 CORS 与全局异常兜底**：新增 `CORSMiddleware`（本地开发放开，公网部署需收紧）；
+  数据库连不上时返回结构化的 JSON 错误并记录堆栈，前端不再只看到裸 500。
+
+### 数据库变更 Schema Changes
+
+| 表 | 变更 | 说明 |
+|---|---|---|
+| `fact_sales` | 新增 `is_guest` TINYINT(1) | 游客订单标记 |
+| `fact_sales` | 新增 `source_sheet` VARCHAR(64) | 数据血缘 |
+| `fact_sales` | 新增 `source_row` INT | 数据血缘 |
+| `dim_customer` | 删除 `is_guest` | 该列恒为 0，已移至事实表 |
+
+### 升级步骤 Upgrade
+
+```bash
+python etl/build_dw.py                          # 必须重跑，表结构已变
+uvicorn api.main:app --reload --port 8000
+```
+
+### 影响面 Impact
+
+| 项目 | 影响 |
+|---|---|
+| API 接口 | `/api/kpi` 新增 2 个返回字段（向后兼容，老代码不受影响） |
+| 数据量 | 事实表行数不变（1,038,819），GMV 不变 |
+| 前端 | 状态栏数据周期改为动态取值 |
+| 兼容性 | 若外部脚本直接读过 `dim_customer.is_guest`，需要改为读 `fact_sales.is_guest` |
+
+---
+
 ## [1.0.1] — 2026-11-24
 
 > **修订版本（Z +1）**：仅修复缺陷与展示错误，**无新增接口、无表结构变更**。
@@ -189,7 +265,7 @@ uvicorn api.main:app --reload --port 8000       # 重启服务
 
 ### 已知问题 Known Issues
 
-> 以下为**当前版本（1.0.1）**仍存在的问题，随修复逐条移出。
+> 以下为**当前版本（1.0.2）**仍存在的问题，随修复逐条移出。
 
 - **全量重建耗时长**：每次运行都要重装 104 万行（约 5 分钟），数据量再涨需要改增量方案
 - **无鉴权**：API 无任何认证，仅适合本地运行，不能直接公网暴露
@@ -207,6 +283,7 @@ uvicorn api.main:app --reload --port 8000       # 重启服务
 
 | 版本 | 日期 | 状态 | 说明 |
 |---|---|---|---|
+| 1.0.2 | 2026-11-25 | 可用 | 维度表口径对齐 RFM、补数据血缘、收敛硬编码 |
 | 1.0.1 | 2026-11-24 | 可用 | 修复重复计数 / 币种 / 退货率，指标全部重算 |
 | 1.0.0 | 2026-10-27 | 可用 | 全链路跑通，覆盖 8 个业务问题 |
 

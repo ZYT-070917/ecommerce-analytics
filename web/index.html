@@ -145,7 +145,8 @@ async function loadKpi(){
   document.getElementById("k-return").innerHTML = d.return_rate + "<small>%</small>";
   document.getElementById("k-lines").innerHTML = num(d.line_count);
   document.getElementById("status").textContent =
-    "已连接 MySQL 数据仓库 · 事实表 " + num(d.line_count) + " 行 · 数据周期 2009-12 ~ 2011-12";
+    "已连接 MySQL 数据仓库 · 事实表 " + num(d.line_count) + " 行 · 数据周期 " +
+    String(d.date_from).slice(0, 7) + " ~ " + String(d.date_to).slice(0, 7);
 }
 
 async function loadTrend(){
