@@ -5,6 +5,7 @@
 
 import logging
 import os
+import time
 import traceback
 from pathlib import Path
 
@@ -45,10 +46,25 @@ async def unhandled_error(request: Request, exc: Exception):
     )
 
 
+# ---------- 结果缓存 ----------
+# 看板一次加载会并发打 8 个接口，每个接口都要扫上百万行聚合。
+# 同样的 SQL 在 TTL 内直接复用上次结果，第二次刷新从「秒级」降到「毫秒级」。
+# ETL 是手动触发的全量重建，所以 5 分钟的陈旧窗口可以接受；
+# 改数据后想立刻看到，重启服务或等 5 分钟即可。
+CACHE_TTL = 300
+_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
 def q(sql: str, **params) -> list[dict]:
+    key = sql + repr(sorted(params.items()))
+    hit = _cache.get(key)
+    if hit is not None and time.time() - hit[0] < CACHE_TTL:
+        return [dict(r) for r in hit[1]]   # 返回副本，防止调用方原地改到缓存
     with engine.connect() as conn:
         df = pd.read_sql(text(sql), conn, params=params or None)
-    return df.to_dict("records")
+    rows = df.to_dict("records")
+    _cache[key] = (time.time(), rows)
+    return [dict(r) for r in rows]
 
 
 @app.get("/")
@@ -58,23 +74,25 @@ def index():
 
 @app.get("/api/kpi")
 def kpi():
-    """核心经营指标（GMV 排除退货单）"""
+    """核心经营指标（GMV 不含退货；退货率单独从退货行统计）"""
     sql = """
         SELECT
-            ROUND(SUM(CASE WHEN is_return = 0 THEN amount END), 2)      AS gmv,
-            COUNT(DISTINCT CASE WHEN is_return = 0 THEN invoice_no END) AS orders,
-            COUNT(DISTINCT customer_id)                                AS customers,
-            ROUND(SUM(CASE WHEN is_return = 0 THEN amount END)
-                  / NULLIF(COUNT(DISTINCT CASE WHEN is_return = 0 THEN invoice_no END), 0), 2) AS aov,
+            ROUND(SUM(f.amount), 2)                              AS gmv,
+            COUNT(DISTINCT f.invoice_no)                         AS orders,
+            -- 客户数仍按全表算（含 61 个"只有退货单"的客户），保持与原口径一致；
+            -- 若改成从 v_sales 取会变成 5,878，那属于指标口径变更，不在重构范围内。
+            (SELECT COUNT(DISTINCT customer_id) FROM fact_sales) AS customers,
+            ROUND(SUM(f.amount)
+                  / NULLIF(COUNT(DISTINCT f.invoice_no), 0), 2)  AS aov,
             -- 退货金额取绝对值：不假设退货行的 quantity 一定是负数，
             -- 否则数据里一旦出现正数量的退货单，退货率会算成负数。
-            ROUND(ABS(SUM(CASE WHEN is_return = 1 THEN amount END))
-                  / NULLIF(SUM(CASE WHEN is_return = 0 THEN amount END), 0) * 100, 2) AS return_rate,
-            COUNT(*) AS line_count,
-            -- 数据周期交给后端算，前端不再写死 "2009-12 ~ 2011-12"
-            (SELECT MIN(full_date) FROM dim_date) AS date_from,
-            (SELECT MAX(full_date) FROM dim_date) AS date_to
-        FROM fact_sales
+            ROUND((SELECT ABS(SUM(amount)) FROM fact_sales WHERE is_return = 1)
+                  / NULLIF(SUM(f.amount), 0) * 100, 2)           AS return_rate,
+            (SELECT COUNT(*) FROM fact_sales)                    AS line_count,
+            -- 数据周期交给后端算，前端不再写死
+            (SELECT MIN(full_date) FROM dim_date)                AS date_from,
+            (SELECT MAX(full_date) FROM dim_date)                AS date_to
+        FROM v_sales f
     """
     return q(sql)[0]
 
@@ -87,9 +105,8 @@ def trend():
                ROUND(SUM(f.amount), 2)          AS gmv,
                COUNT(DISTINCT f.invoice_no)     AS orders,
                COUNT(DISTINCT f.customer_id)    AS customers
-        FROM fact_sales f
+        FROM v_sales f
         JOIN dim_date d ON d.date_key = f.date_key
-        WHERE f.is_return = 0
         GROUP BY d.year, d.month, d.month_name
         ORDER BY MIN(d.date_key)
     """
@@ -105,9 +122,8 @@ def top_products(limit: int = 10):
                ROUND(SUM(f.amount), 2)         AS gmv,
                SUM(f.quantity)                 AS qty,
                COUNT(DISTINCT f.invoice_no)    AS orders
-        FROM fact_sales f
+        FROM v_product_sales f
         LEFT JOIN dim_product p ON p.stock_code = f.stock_code
-        WHERE f.is_return = 0 AND f.is_product = 1
         GROUP BY f.stock_code
         ORDER BY gmv DESC
         LIMIT :limit
@@ -119,12 +135,11 @@ def top_products(limit: int = 10):
 def country(limit: int = 10):
     """国家/地区 GMV 分布"""
     sql = """
-        SELECT country,
-               ROUND(SUM(amount), 2) AS gmv,
-               COUNT(DISTINCT customer_id) AS customers
-        FROM fact_sales
-        WHERE is_return = 0
-        GROUP BY country
+        SELECT f.country,
+               ROUND(SUM(f.amount), 2) AS gmv,
+               COUNT(DISTINCT f.customer_id) AS customers
+        FROM v_sales f
+        GROUP BY f.country
         ORDER BY gmv DESC
         LIMIT :limit
     """
@@ -137,17 +152,14 @@ def weekday():
     sql = """
         SELECT d.weekday,
                ROUND(SUM(f.amount) / COUNT(DISTINCT d.full_date), 2) AS avg_gmv
-        FROM fact_sales f
+        FROM v_sales f
         JOIN dim_date d ON d.date_key = f.date_key
-        WHERE f.is_return = 0
         GROUP BY d.weekday
         ORDER BY d.weekday
     """
     names = {1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六", 7: "周日"}
-    rows = q(sql)
-    for r in rows:
-        r["weekday"] = names.get(r["weekday"], str(r["weekday"]))
-    return rows
+    # 返回新对象而不是原地改：q() 的结果可能来自缓存，原地改会把缓存污染掉
+    return [{**r, "weekday": names.get(r["weekday"], str(r["weekday"]))} for r in q(sql)]
 
 
 @app.get("/api/rfm")
@@ -159,9 +171,9 @@ def rfm():
                    DATEDIFF((SELECT MAX(full_date) FROM dim_date), MAX(d.full_date)) AS recency,
                    COUNT(DISTINCT f.invoice_no) AS frequency,
                    SUM(f.amount)                AS monetary
-            FROM fact_sales f
+            FROM v_sales f
             JOIN dim_date d ON d.date_key = f.date_key
-            WHERE f.is_return = 0 AND f.customer_id IS NOT NULL
+            WHERE f.customer_id IS NOT NULL
             GROUP BY f.customer_id
         ), scored AS (
             SELECT *,
@@ -190,22 +202,25 @@ def rfm():
     return q(sql)
 
 
+# ABC 与 Pareto 用的是同一份中间结果：「按 SKU 汇总 GMV，再按金额降序累计」。
+# 之前两个接口各写了一遍（连 CTE 名字都一样），口径改动要改两处 —— 抽成常量共用。
+STOCK_GMV_CTE = """
+        WITH ranked AS (
+            SELECT stock_code,
+                   SUM(amount)                                       AS gmv,
+                   SUM(SUM(amount)) OVER (ORDER BY SUM(amount) DESC)  AS cum_gmv,
+                   SUM(SUM(amount)) OVER ()                           AS total_gmv,
+                   ROW_NUMBER() OVER (ORDER BY SUM(amount) DESC)      AS rn
+            FROM v_product_sales
+            GROUP BY stock_code
+        )
+"""
+
+
 @app.get("/api/abc")
 def abc():
     """ABC 商品分析 + 帕累托：按累计 GMV 贡献把商品分为 A(80%)/B(95%)/C"""
-    sql = """
-        WITH prod AS (
-            SELECT stock_code, SUM(amount) AS gmv
-            FROM fact_sales
-            WHERE is_return = 0 AND is_product = 1
-            GROUP BY stock_code
-        ), ranked AS (
-            SELECT stock_code, gmv,
-                   SUM(gmv) OVER (ORDER BY gmv DESC) AS cum_gmv,
-                   SUM(gmv) OVER ()                  AS total_gmv,
-                   ROW_NUMBER() OVER (ORDER BY gmv DESC) AS rn
-            FROM prod
-        )
+    sql = STOCK_GMV_CTE + """
         SELECT CASE
                  WHEN cum_gmv / total_gmv <= 0.80 THEN 'A 类(贡献80%GMV)'
                  WHEN cum_gmv / total_gmv <= 0.95 THEN 'B 类(80-95%)'
@@ -224,18 +239,7 @@ def abc():
 @app.get("/api/pareto")
 def pareto(top: int = 30):
     """头部商品累计贡献曲线（帕累托图数据）"""
-    sql = """
-        WITH prod AS (
-            SELECT stock_code, SUM(amount) AS gmv
-            FROM fact_sales WHERE is_return = 0 AND is_product = 1
-            GROUP BY stock_code
-        ), ranked AS (
-            SELECT stock_code, gmv,
-                   ROW_NUMBER() OVER (ORDER BY gmv DESC) AS rn,
-                   SUM(gmv) OVER (ORDER BY gmv DESC) AS cum_gmv,
-                   SUM(gmv) OVER () AS total_gmv
-            FROM prod
-        )
+    sql = STOCK_GMV_CTE + """
         SELECT rn, stock_code,
                ROUND(gmv, 2) AS gmv,
                ROUND(cum_gmv / total_gmv * 100, 2) AS cum_pct

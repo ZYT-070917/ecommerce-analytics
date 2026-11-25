@@ -54,5 +54,16 @@ CREATE TABLE IF NOT EXISTS fact_sales (
     KEY idx_fact_date (date_key),
     KEY idx_fact_customer (customer_id),
     KEY idx_fact_stock (stock_code),
-    KEY idx_fact_invoice (invoice_no)
+    KEY idx_fact_invoice (invoice_no),
+    -- 组合索引：几乎所有分析查询都同时带 is_return=0（+ is_product=1），再按日期过滤。
+    -- 单列索引在这种场景下只能用到一半，组合索引可以把两个过滤条件一起走完。
+    KEY idx_fact_scope (is_return, is_product, date_key)
 ) ENGINE=InnoDB;
+
+-- ---------- 视图：统一的"有效销售"口径 ----------
+
+CREATE OR REPLACE VIEW v_sales AS
+    SELECT * FROM fact_sales WHERE is_return = 0;
+
+CREATE OR REPLACE VIEW v_product_sales AS
+    SELECT * FROM fact_sales WHERE is_return = 0 AND is_product = 1;

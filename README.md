@@ -48,7 +48,7 @@
 | 数据来源 | UCI Machine Learning Repository — Online Retail II |
 | 技术栈 | Python 3、pandas、MySQL 8.0、SQLAlchemy、FastAPI、ECharts |
 | 产出形态 | 本地可运行的数据仓库、REST API、单页可视化看板 |
-| 代码规模 | 865 行（ETL 260 行，API 259 行，看板 288 行，DDL 58 行） |
+| 代码规模 | 884 行（ETL 260 行，API 263 行，看板 288 行，DDL 与视图 73 行） |
 
 ---
 
@@ -188,11 +188,28 @@
 | `source_sheet` | VARCHAR(64) | 数据血缘：这行来自 Excel 哪个 sheet |
 | `source_row` | INT | 数据血缘：在源 sheet 中的行号，表头占第 1 行 |
 
-索引建在 `date_key`、`customer_id`、`stock_code`、`invoice_no` 四个字段上，
-覆盖看板涉及的查询条件。
+索引建在 `date_key`、`customer_id`、`stock_code`、`invoice_no` 四个单列上，
+另有一个组合索引 `(is_return, is_product, date_key)`。看板的查询几乎都带
+"只算正向销售、只算真实商品、再按日期过滤"这三个条件，组合索引能把它们一次走完，
+不必先扫一个大范围再回表过滤。
 
 最后两列是数据血缘。`line_no` 是清洗删行后按订单重新编的序号，和源文件行号对不上，
 排查某条脏数据从哪来时，只能靠 `source_sheet` 加 `source_row` 回到原始 Excel 定位。
+
+### 视图：把口径固定在一处
+
+除了四张表，库里还有两个视图，用来收敛散落在 SQL 里的过滤条件：
+
+| 视图 | 定义 | 用途 |
+|---|---|---|
+| `v_sales` | `is_return = 0` | 所有"有效销售"类统计 |
+| `v_product_sales` | `is_return = 0 AND is_product = 1` | 所有商品维度分析 |
+
+之前 8 段分析 SQL 各自写着 `WHERE is_return = 0`，口径一旦要调整就得改 8 个地方，
+而且很容易漏掉一处导致两个图表的数字对不上。现在改成查视图，口径只有一份定义。
+
+两个视图都是简单 WHERE 过滤，MySQL 会用 MERGE 算法把条件下推到基表，
+索引照常生效（`EXPLAIN` 可以看到走的是 `idx_fact_scope`）。
 
 ### dim_date（739 行）
 
