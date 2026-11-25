@@ -48,7 +48,7 @@
 | 数据来源 | UCI Machine Learning Repository — Online Retail II |
 | 技术栈 | Python 3、pandas、MySQL 8.0、SQLAlchemy、FastAPI、ECharts |
 | 产出形态 | 本地可运行的数据仓库、REST API、单页可视化看板 |
-| 代码规模 | 884 行（ETL 260 行，API 263 行，看板 288 行，DDL 与视图 73 行） |
+| 代码规模 | 974 行（ETL 260，API 263，看板 288，DDL 与视图 69，启动脚本 94） |
 
 ---
 
@@ -317,7 +317,7 @@ cum_gmv / total_gmv                -- 累计占比
 
 ### 环境要求
 
-- Python 3.9 及以上
+- Python 3.11 及以上（pandas 3.x 的最低要求）
 - MySQL 8.0 及以上，本地或远程均可
 
 ### 步骤
@@ -327,8 +327,10 @@ cum_gmv / total_gmv                -- 累计占比
 git clone https://github.com/ZYT-070917/ecommerce-analytics.git
 cd ecommerce-analytics
 
-# 2) 安装依赖
-pip install -r requirements.txt
+# 2) 建虚拟环境并安装依赖
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt     # Windows
+# source .venv/bin/activate && pip install -r requirements.txt   # macOS / Linux
 
 # 3) 配置连接串
 cp .env.example .env
@@ -349,12 +351,32 @@ curl -L -o raw/online_retail_ii.zip "https://archive.ics.uci.edu/static/public/5
 unzip -o raw/online_retail_ii.zip -d raw/
 # 得到 raw/online_retail_II.xlsx，脚本按这个名字读取，注意大小写
 
-# 5) 构建数据仓库，首次约 5 到 10 分钟，主要耗时在装载 104 万行
-python etl/build_dw.py
-
-# 6) 启动服务
-uvicorn api.main:app --port 8000
+# 5) 一条命令启动
+python run.py
 ```
+
+`run.py` 会做三件事：先检查 `fact_sales` 有没有数据（没有就跑 ETL，首次约 5 分钟），
+然后启动服务，最后自动打开浏览器。第二次以后启动只要两秒。
+
+Windows 用户也可以直接**双击 `start.bat`**，效果相同。
+
+常用参数：
+
+| 命令 | 作用 |
+|---|---|
+| `python run.py` | 自动判断要不要建仓，然后起服务 |
+| `python run.py --rebuild` | 强制重跑 ETL（换数据源、改了清洗逻辑时用） |
+| `python run.py --port 8080` | 换端口（默认 8000，被占用时会提示） |
+| `python run.py --no-browser` | 不自动打开浏览器 |
+
+想看清楚每一步在做什么，也可以手动分两步，与上面完全等价：
+
+```bash
+python etl/build_dw.py                        # 只建仓
+uvicorn api.main:app --reload --port 8000     # 只起服务（带热重载，改代码自动重启）
+```
+
+`--reload` 只在手动方式下可用，`run.py` 里为了稳定没有开启热重载。
 
 浏览器打开 `http://127.0.0.1:8000` 查看看板，
 打开 `http://127.0.0.1:8000/docs` 查看可交互的接口文档。
